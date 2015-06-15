@@ -1,0 +1,669 @@
+#include <HMC5883L.h>
+#include <Wire.h>
+#include <SoftwareSerial.h>
+#define trigpinl 2
+#define echopinl 4
+#define trigpinm 7
+#define echopinm 8
+#define trigpinr 12
+#define echopinr 13
+SoftwareSerial BT(10,11);
+HMC5883L compass ;
+String readvoice,com;
+void setup(){
+    // Set measurement range
+  compass.setRange(HMC5883L_RANGE_1_3GA);
+
+  // Set measurement mode
+  compass.setMeasurementMode(HMC5883L_CONTINOUS);
+
+  // Set data rate
+  compass.setDataRate(HMC5883L_DATARATE_30HZ);
+
+  // Set number of samples averaged
+  compass.setSamples(HMC5883L_SAMPLES_8);
+
+  // Set calibration offset. See HMC5883L_calibration.ino
+  compass.setOffset(0, 0);
+  Serial.begin(9600);
+  BT.begin(9600);
+  pinMode(3,OUTPUT);
+  pinMode(5,OUTPUT);
+  pinMode(6,OUTPUT);
+  pinMode(9,OUTPUT);
+  pinMode(trigpinl,OUTPUT);
+  pinMode(echopinl,INPUT);
+  pinMode(trigpinm,OUTPUT);
+  pinMode(echopinm,INPUT);
+  pinMode(trigpinr,OUTPUT);
+  pinMode(echopinr,INPUT);
+}
+int mindistance(int x,int y,int z){
+  int m ;
+  if(x<=y&&x<=z){
+    m=x;
+  }
+  if(y<x&&y<z){
+    m=y;
+  }
+  if(z<x&&z<y){
+    m=z;
+  }
+  return m;
+}
+float minimum(float a,float b,float c,float d,float e,float f,float g,float h){
+  float mini;
+  mini=a;
+  if(b<mini){
+    mini=b;
+  }
+    if(c<mini){
+    mini=c;
+  }
+    if(d<mini){
+    mini=d;
+  }
+    if(e<mini){
+    mini=e;
+  }
+    if(f<mini){
+    mini=f;
+  }
+    if(g<mini){
+    mini=g;
+  }
+    if(h<mini){
+    mini=h;
+  }
+  return mini;
+}
+void forward(){
+  digitalWrite(3,HIGH);
+  digitalWrite(5,HIGH);
+  digitalWrite(6,LOW);
+  digitalWrite(9,LOW);
+  delay(100);
+}
+void backward(){
+  digitalWrite(3,LOW);
+  digitalWrite(5,LOW);
+  digitalWrite(6,HIGH);
+  digitalWrite(9,HIGH);
+  delay(100);
+}
+void left(){
+  digitalWrite(3,HIGH);
+  digitalWrite(5,LOW);
+  digitalWrite(6,LOW);
+  digitalWrite(9,HIGH);
+  delay(100);
+}
+void right(){
+  digitalWrite(3,LOW);
+  digitalWrite(5,HIGH);
+  digitalWrite(6,HIGH);
+  digitalWrite(9,LOW);
+  delay(100);
+}
+void brake(){
+  digitalWrite(3,LOW);
+  digitalWrite(5,LOW);
+  digitalWrite(6,LOW);
+  digitalWrite(9,LOW);
+  delay(100);
+}
+int comp(){
+  Vector norm=compass.readNormalize();
+  int heading=atan2(norm.YAxis,norm.XAxis);
+  int declinationangle=(4.0+(21.0/60.0))/(180/M_PI);
+  heading+=declinationangle;
+  if(heading<0){
+    heading+=2*PI;
+  }
+  if(heading>2*PI){
+    heading-=2*PI;
+  }
+  int headingdegrees=heading*180/M_PI;
+  return headingdegrees;
+}
+int distl(){
+  int L,t1;
+  digitalWrite(trigpinl,HIGH);
+  delay(50);
+  digitalWrite(trigpinl,LOW);
+  t1=pulseIn(echopinl,HIGH);
+  L=(t1/2)/29.1;
+  return L;
+}
+int distm(){
+  int M,t2;
+  digitalWrite(trigpinm,HIGH);
+  delay(50);
+  digitalWrite(trigpinm,LOW);
+  t2=pulseIn(echopinm,HIGH);
+  M=(t2/2)/29.1;
+  return M;
+}
+  int distr(){
+  int R,t3;
+  digitalWrite(trigpinr,HIGH);
+  delay(50);
+  digitalWrite(trigpinr,LOW);
+  t3=pulseIn(echopinr,HIGH);
+  R=(t3/2)/29.1;
+  return R;
+}
+void loop() {
+ int hd1,L,M,R,mindist;
+float mini,theta;
+while(BT.available()){
+  char c=BT.read();
+  readvoice+=c;
+  Serial.println(readvoice);
+}
+if(readvoice=="forward"){
+   forward();
+}
+if(readvoice=="backward"){
+   backward();
+}
+if(readvoice=="left"){
+   left();
+}
+if(readvoice=="right"){
+   right();
+}
+if(readvoice=="stop"||readvoice=="top"){
+   brake();
+}
+if(readvoice=="follow"){
+  int i,d;
+  float A[8];
+  hd1=comp();
+  d=hd1;
+ while(hd1>=d&&hd1<(d+360)){
+   hd1=comp();
+   right();
+ if(hd1%45==0){
+   brake();
+  i=hd1/45;
+  L=distl();
+  M=distm();
+  R=distr();
+  A[i]=(L+M+R)/3;
+ }
+ }
+ mini=minimum(A[0],A[1],A[2],A[3],A[4],A[5],A[6],A[7]);
+ while(mini==A[0]){
+   if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+   L=distl();
+   M=distm();
+   R=distr();
+   mindist=mindistance(L,M,R);
+   if(mindist==L){
+     theta=(atan(mindist/4))*(180/PI);
+      left();
+     while(360-hd1<theta){
+     hd1=comp();
+     }
+      brake();
+   }
+     if(mindist==R){
+       theta=(atan(mindist/4))*(180/PI);
+        right();
+       while(hd1<theta){
+         hd1=comp();
+       }
+        brake();
+     }
+       if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+ }
+  if(mini==A[1]){
+  right();
+while(hd1<45){
+ hd1=comp();
+}
+ brake();
+while(mini==A[1]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(45-hd1<theta){
+      hd1=comp();
+    }
+    brake();
+  }
+  if(mindist==R){
+    right();
+    while(hd1-45<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+  }
+   if(mini==A[2]){
+  right();
+while(hd1<90){
+ hd1=comp();
+}
+ brake();
+while(mini==A[2]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(90-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-90<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+   if(mini==A[3]){
+  right();
+while(hd1<135){
+ hd1=comp();
+}
+ brake();
+while(mini==A[3]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(135-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-135<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+   if(mini==A[4]){
+  right();
+while(hd1<180){
+ hd1=comp();
+}
+ brake();
+while(mini==A[4]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(180-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-180<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+   if(mini==A[5]){
+  right();
+while(hd1<225){
+ hd1=comp();
+}
+ brake();
+while(mini==A[5]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(225-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-225<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+   if(mini==A[6]){
+  right();
+while(hd1<270){
+ hd1=comp();
+}
+ brake();
+while(mini==A[6]){
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(270-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-270<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+   if(mini==A[7]){
+  right();
+while(hd1<315){
+ hd1=comp();
+}
+ brake();
+while(mini==A[7]){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+  mindist=mindistance(L,M,R);
+   theta=(atan(mindist/4))*(180/PI);
+  if(mindist==L){
+     left();
+    while(315-hd1<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+  if(mindist==R){
+     right();
+    while(hd1-315<theta){
+      hd1=comp();
+    }
+     brake();
+  }
+         if(mindist>40){
+          forward();
+         delay(500);
+          brake();
+       }
+       if(mindist<25){
+          backward();
+         delay(300);
+          brake();
+       }
+     }
+   }
+}
+while(readvoice=="avoid"){
+     if(BT.available()){
+     char a;
+     com+=a;
+   }
+   if(com=="stop"){
+     break;
+   }
+  L=distl();
+  M=distm();
+  R=distr();
+   forward();
+  while(L>30&&M>30&&R>30){
+  L=distl();
+  M=distm();
+  R=distr();
+  }
+   brake();
+  if(L<30||M<30||R<30){
+   int i,d;
+   float maxi;
+  float A[8];
+  hd1=comp();
+  d=hd1;
+ while(hd1>=d&&hd1<(d+360)){
+   hd1=comp();
+   right();
+ if(hd1%45==0){
+   brake();
+  i=hd1/45;
+  L=distl();
+  M=distm();
+  R=distr();
+  A[i]=(L+M+R)/3;
+ }
+ }
+ maxi=A[0];
+ if(maxi<A[1]){
+   maxi=A[1];
+ }
+  if(maxi<A[2]){
+   maxi=A[2];
+ }
+  if(maxi<A[3]){
+   maxi=A[3];
+ }
+  if(maxi<A[4]){
+   maxi=A[4];
+ }
+  if(maxi<A[5]){
+   maxi=A[5];
+ }
+  if(maxi<A[6]){
+   maxi=A[6];
+ }
+  if(maxi<A[7]){
+   maxi=A[7];
+ }
+  right();
+if(maxi==A[1]){
+  right();
+while(hd1<45){
+ hd1=comp();
+}
+ brake();
+}
+if(maxi==A[2]){
+  right();
+while(hd1<90){
+ hd1=comp();
+}
+ brake();
+}
+if(maxi==A[3]){
+ right();
+while(hd1<135){
+ hd1=comp();
+}
+ brake();
+}
+if(maxi==A[4]){
+ right();
+while(hd1<180){
+ hd1=comp();
+}
+ brake();
+}
+if(maxi==A[5]){
+ right();
+while(hd1<225){
+ hd1=comp();
+}
+ brake();
+}
+if(maxi==A[6]){
+ right();
+while(hd1<270){
+ hd1=comp();
+}
+brake();
+}
+if(maxi==A[7]){
+  right();
+while(hd1<315){
+ hd1=comp();
+}
+ brake();
+}
+  }
+}
+if(readvoice.length()>3){
+  readvoice="";
+}
+}
+   
+ 
+ 
+    
+   
+  
+   
+    
+
+     
+  
